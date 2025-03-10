@@ -236,6 +236,7 @@ func convertHTTPRoute(r k8s.HTTPRouteRule, ctx configContext,
 			Method:      method,
 		})
 	}
+	var mirrorBackendErr *ConfigError
 	for _, filter := range r.Filters {
 		switch filter.Type {
 		case k8s.HTTPRouteFilterRequestHeaderModifier:
@@ -261,9 +262,10 @@ func convertHTTPRoute(r k8s.HTTPRouteRule, ctx configContext,
 		case k8s.HTTPRouteFilterRequestMirror:
 			mirror, err := createMirrorFilter(ctx, filter.RequestMirror, obj.Namespace, enforceRefGrant, gvk.HTTPRoute)
 			if err != nil {
-				return nil, err
+				mirrorBackendErr = err
+			} else {
+				vs.Mirrors = append(vs.Mirrors, mirror)
 			}
-			vs.Mirrors = append(vs.Mirrors, mirror)
 		case k8s.HTTPRouteFilterURLRewrite:
 			vs.Rewrite = createRewriteFilter(filter.URLRewrite)
 		default:
@@ -326,10 +328,21 @@ func convertHTTPRoute(r k8s.HTTPRouteRule, ctx configContext,
 			return nil, err
 		}
 		vs.Route = route
-		return vs, backendErr
+		return vs, joinErrors(backendErr, mirrorBackendErr)
 	}
 
-	return vs, nil
+	return vs, mirrorBackendErr
+}
+
+func joinErrors(a *ConfigError, b *ConfigError) *ConfigError {
+	if b == nil {
+		return a
+	}
+	if a == nil {
+		return b
+	}
+	a.Message += "; " + b.Message
+	return a
 }
 
 func convertGRPCRoute(r k8s.GRPCRouteRule, ctx configContext,
